@@ -23,7 +23,7 @@ export function LoginPage() {
     onSuccess: (data) => {
       dispatch(setCredentials({ token: data.token, user: data.user }));
       toast.success(`Welcome back, ${data.user.name}!`);
-      navigate("/books");
+      navigate(data.user.role === "ADMIN" ? "/admin/dashboard" : "/books");
     },
     onError: (err: any) => {
       toast.error(err.response?.data?.message ?? "Login failed. Please check your credentials.");
