@@ -69,7 +69,14 @@ export function ProfilePage() {
   }
 
   if (isError || !profile) {
-    return <div className="text-center py-12 text-destructive">Failed to load profile.</div>;
+    return (
+      <div className="text-center py-12">
+        <p className="font-medium text-destructive">Failed to load profile.</p>
+        <Button variant="outline" size="sm" className="mt-4" onClick={() => qc.invalidateQueries({ queryKey: ["me"] })}>
+          Try again
+        </Button>
+      </div>
+    );
   }
 
   const statCards = [

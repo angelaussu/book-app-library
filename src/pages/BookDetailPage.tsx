@@ -1,15 +1,9 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useSelector } from "react-redux";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Star, BookOpen, Calendar, Hash, Bookmark, Trash2 } from "lucide-react";
-import { toast } from "sonner";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
-import { booksApi } from "@/api/books";
-import { loansApi } from "@/api/loans";
-import { reviewsApi } from "@/api/reviews";
-import type { RootState } from "@/store";
+import { useBookDetail } from "@/hooks/useBookDetail";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,19 +13,19 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { toast } from "sonner";
 
 dayjs.extend(relativeTime);
 
 export function BookDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const qc = useQueryClient();
-  const user = useSelector((s: RootState) => s.auth.user);
+  const bookId = Number(id);
 
   const [borrowDays, setBorrowDays] = useState("7");
   const [borrowDialogOpen, setBorrowDialogOpen] = useState(false);
@@ -39,66 +33,19 @@ export function BookDetailPage() {
   const [reviewComment, setReviewComment] = useState("");
   const [showReviewForm, setShowReviewForm] = useState(false);
 
-  const bookId = Number(id);
+  const {
+    book,
+    bookQuery,
+    reviewsQuery,
+    reviews,
+    myReview,
+    user,
+    borrowMutation,
+    reviewMutation,
+    deleteReviewMutation,
+  } = useBookDetail(bookId);
 
-  const { data: book, isLoading } = useQuery({
-    queryKey: ["book", bookId],
-    queryFn: () => booksApi.getBook(bookId),
-    enabled: !!bookId,
-  });
-
-  const { data: reviewsData, isLoading: reviewsLoading } = useQuery({
-    queryKey: ["reviews", bookId],
-    queryFn: () => reviewsApi.getBookReviews(bookId, { limit: 20 }),
-    enabled: !!bookId,
-  });
-
-  const borrowMutation = useMutation({
-    mutationFn: () => loansApi.borrowBook(bookId, Number(borrowDays)),
-    onMutate: async () => {
-      // Optimistic UI: decrement availableCopies
-      await qc.cancelQueries({ queryKey: ["book", bookId] });
-      const prev = qc.getQueryData(["book", bookId]);
-      qc.setQueryData(["book", bookId], (old: any) =>
-        old ? { ...old, availableCopies: Math.max(0, old.availableCopies - 1) } : old
-      );
-      return { prev };
-    },
-    onSuccess: () => {
-      setBorrowDialogOpen(false);
-      toast.success("Book borrowed successfully!");
-      qc.invalidateQueries({ queryKey: ["book", bookId] });
-      qc.invalidateQueries({ queryKey: ["loans"] });
-    },
-    onError: (err: any, _vars, ctx) => {
-      qc.setQueryData(["book", bookId], ctx?.prev);
-      toast.error(err.response?.data?.message ?? "Failed to borrow book.");
-    },
-  });
-
-  const reviewMutation = useMutation({
-    mutationFn: () => reviewsApi.createOrUpdateReview(bookId, reviewStar, reviewComment),
-    onSuccess: () => {
-      toast.success("Review submitted!");
-      setShowReviewForm(false);
-      setReviewComment("");
-      setReviewStar(5);
-      qc.invalidateQueries({ queryKey: ["reviews", bookId] });
-      qc.invalidateQueries({ queryKey: ["book", bookId] });
-    },
-    onError: (err: any) => toast.error(err.response?.data?.message ?? "Failed to submit review."),
-  });
-
-  const deleteReviewMutation = useMutation({
-    mutationFn: (reviewId: number) => reviewsApi.deleteReview(reviewId),
-    onSuccess: () => {
-      toast.success("Review deleted.");
-      qc.invalidateQueries({ queryKey: ["reviews", bookId] });
-    },
-    onError: () => toast.error("Failed to delete review."),
-  });
-
-  if (isLoading) {
+  if (bookQuery.isLoading) {
     return (
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="mb-4 -ml-2">
@@ -117,11 +64,27 @@ export function BookDetailPage() {
     );
   }
 
+  if (bookQuery.isError) {
+    return (
+      <div>
+        <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="mb-4 -ml-2">
+          <ArrowLeft size={16} className="mr-1" /> Back
+        </Button>
+        <div className="text-center py-16">
+          <p className="text-lg font-medium text-destructive">Failed to load book</p>
+          <p className="text-sm mt-1 text-muted-foreground">Please try again later.</p>
+          <Button variant="outline" size="sm" className="mt-4" onClick={() => bookQuery.refetch()}>
+            Try again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (!book) return <div className="text-center py-16 text-muted-foreground">Book not found.</div>;
 
   const available = book.availableCopies > 0;
-  const reviews = reviewsData?.reviews ?? [];
-  const myReview = reviews.find((r) => r.userId === user?.id);
+  const reviewsData = reviewsQuery.data;
 
   return (
     <div>
@@ -226,7 +189,16 @@ export function BookDetailPage() {
               onClick={() => {
                 const comment = reviewComment || myReview?.comment || "";
                 if (!comment.trim()) return toast.error("Please write a comment.");
-                reviewMutation.mutate();
+                reviewMutation.mutate(
+                  { star: reviewStar, comment },
+                  {
+                    onSuccess: () => {
+                      setShowReviewForm(false);
+                      setReviewComment("");
+                      setReviewStar(5);
+                    },
+                  }
+                );
               }}
             >
               {reviewMutation.isPending ? "Submitting…" : "Submit Review"}
@@ -241,7 +213,7 @@ export function BookDetailPage() {
       {/* Reviews */}
       <div>
         <h2 className="text-lg font-semibold mb-4">Reviews ({reviewsData?.pagination.total ?? 0})</h2>
-        {reviewsLoading ? (
+        {reviewsQuery.isLoading ? (
           <div className="space-y-4">
             {[1, 2, 3].map((i) => (
               <div key={i} className="flex gap-3">
@@ -254,7 +226,9 @@ export function BookDetailPage() {
             ))}
           </div>
         ) : reviews.length === 0 ? (
-          <p className="text-muted-foreground text-sm py-6 text-center">No reviews yet. Be the first to review!</p>
+          <p className="text-muted-foreground text-sm py-6 text-center">
+            No reviews yet. Be the first to review!
+          </p>
         ) : (
           <div className="space-y-4">
             {reviews.map((review) => (
@@ -320,7 +294,14 @@ export function BookDetailPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setBorrowDialogOpen(false)}>Cancel</Button>
-            <Button onClick={() => borrowMutation.mutate()} disabled={borrowMutation.isPending}>
+            <Button
+              disabled={borrowMutation.isPending}
+              onClick={() =>
+                borrowMutation.mutate(Number(borrowDays), {
+                  onSuccess: () => setBorrowDialogOpen(false),
+                })
+              }
+            >
               {borrowMutation.isPending ? "Borrowing…" : "Confirm Borrow"}
             </Button>
           </DialogFooter>

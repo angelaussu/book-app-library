@@ -8,11 +8,11 @@ interface Props {
 }
 
 export function ProtectedRoute({ allowedRoles }: Props = {}) {
-  const { token, user } = useSelector((s: RootState) => s.auth);
+  const user = useSelector((s: RootState) => s.auth.user);
 
-  if (!token) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace />;
 
-  if (allowedRoles && user && !allowedRoles.includes(user.role)) {
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
     return <Navigate to={user.role === "ADMIN" ? "/admin/dashboard" : "/books"} replace />;
   }
 

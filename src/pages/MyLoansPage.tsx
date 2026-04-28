@@ -1,14 +1,9 @@
 import { useState } from "react";
-import { useSelector } from "react-redux";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Calendar, BookOpen, RotateCcw, Clock } from "lucide-react";
-import { toast } from "sonner";
 import dayjs from "dayjs";
-import { loansApi } from "@/api/loans";
-import type { RootState } from "@/store";
+import { useMyLoans } from "@/hooks/useMyLoans";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -21,24 +16,7 @@ const statusColor: Record<string, string> = {
 
 export function MyLoansPage() {
   const [tab, setTab] = useState("all");
-  const qc = useQueryClient();
-
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["loans", "my", tab],
-    queryFn: () => loansApi.getMyLoans({ limit: 50 }),
-  });
-
-  const returnMutation = useMutation({
-    mutationFn: (loanId: number) => loansApi.returnBook(loanId),
-    onSuccess: () => {
-      toast.success("Book returned successfully!");
-      qc.invalidateQueries({ queryKey: ["loans"] });
-      qc.invalidateQueries({ queryKey: ["books"] });
-    },
-    onError: (err: any) => toast.error(err.response?.data?.message ?? "Failed to return book."),
-  });
-
-  const loans = data?.loans ?? [];
+  const { loans, isLoading, isError, refetch, returnMutation } = useMyLoans();
 
   const filtered = loans.filter((l) => {
     if (tab === "active") return l.status === "BORROWED" || l.status === "LATE";
@@ -93,7 +71,13 @@ export function MyLoansPage() {
               ))}
             </div>
           ) : isError ? (
-            <div className="text-center py-12 text-destructive">Failed to load loans.</div>
+            <div className="text-center py-12">
+              <p className="font-medium text-destructive">Failed to load loans.</p>
+              <p className="text-sm text-muted-foreground mt-1">Please try again.</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>
+                Try again
+              </Button>
+            </div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-12">
               <BookOpen size={40} className="mx-auto text-muted-foreground mb-3" />

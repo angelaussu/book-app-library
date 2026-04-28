@@ -1,46 +1,26 @@
-import { useEffect, useState } from "react";
-import { useDispatch, useSelector } from "react-redux";
-import { useQuery } from "@tanstack/react-query";
 import { Search, X, Filter } from "lucide-react";
-import { booksApi } from "@/api/books";
-import { categoriesApi } from "@/api/categories";
-import { setSearch, setSelectedCategory } from "@/store/uiSlice";
-import type { RootState } from "@/store";
+import { useBooks } from "@/hooks/useBooks";
 import { BookCard } from "@/components/BookCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { useDebounce } from "@/hooks/useDebounce";
 
 export function BooksPage() {
-  const dispatch = useDispatch();
-  const { search, selectedCategory } = useSelector((s: RootState) => s.ui);
-  const [page, setPage] = useState(1);
-  const debouncedSearch = useDebounce(search, 400);
-
-  // Reset page when filters change
-  useEffect(() => { setPage(1); }, [debouncedSearch, selectedCategory]);
-
-  const { data: categoriesData } = useQuery({
-    queryKey: ["categories"],
-    queryFn: categoriesApi.getCategories,
-    staleTime: 1000 * 60 * 10,
-  });
-
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["books", { page, search: debouncedSearch, category: selectedCategory }],
-    queryFn: () =>
-      booksApi.getBooks({
-        page,
-        limit: 12,
-        search: debouncedSearch || undefined,
-        category: selectedCategory || undefined,
-      }),
-  });
-
-  const books = data?.books ?? [];
-  const pagination = data?.pagination;
+  const {
+    books,
+    pagination,
+    isLoading,
+    isError,
+    refetch,
+    categories,
+    page,
+    setPage,
+    search,
+    selectedCategory,
+    setSearch,
+    setSelectedCategory,
+  } = useBooks();
 
   return (
     <div>
@@ -58,13 +38,13 @@ export function BooksPage() {
           <Input
             placeholder="Search title or author…"
             value={search}
-            onChange={(e) => dispatch(setSearch(e.target.value))}
+            onChange={(e) => setSearch(e.target.value)}
             className="pl-9 pr-9"
           />
           {search && (
             <button
               className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              onClick={() => dispatch(setSearch(""))}
+              onClick={() => setSearch("")}
             >
               <X size={14} />
             </button>
@@ -82,11 +62,11 @@ export function BooksPage() {
           className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
             !selectedCategory ? "bg-primary text-primary-foreground border-primary" : "border-input hover:bg-accent"
           }`}
-          onClick={() => dispatch(setSelectedCategory(""))}
+          onClick={() => setSelectedCategory("")}
         >
           All
         </button>
-        {categoriesData?.map((cat) => (
+        {categories.map((cat) => (
           <button
             key={cat.id}
             className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
@@ -94,7 +74,7 @@ export function BooksPage() {
                 ? "bg-primary text-primary-foreground border-primary"
                 : "border-input hover:bg-accent"
             }`}
-            onClick={() => dispatch(setSelectedCategory(selectedCategory === cat.id ? "" : cat.id))}
+            onClick={() => setSelectedCategory(selectedCategory === cat.id ? "" : cat.id)}
           >
             {cat.name}
           </button>
@@ -105,11 +85,15 @@ export function BooksPage() {
       {(search || selectedCategory) && (
         <div className="flex items-center gap-2 mb-4 text-sm text-muted-foreground">
           <span>Filters:</span>
-          {search && <Badge variant="secondary" className="gap-1">{search} <X size={10} className="cursor-pointer" onClick={() => dispatch(setSearch(""))} /></Badge>}
+          {search && (
+            <Badge variant="secondary" className="gap-1">
+              {search} <X size={10} className="cursor-pointer" onClick={() => setSearch("")} />
+            </Badge>
+          )}
           {selectedCategory && (
             <Badge variant="secondary" className="gap-1">
-              {categoriesData?.find(c => c.id === selectedCategory)?.name}
-              <X size={10} className="cursor-pointer" onClick={() => dispatch(setSelectedCategory(""))} />
+              {categories.find((c) => c.id === selectedCategory)?.name}
+              <X size={10} className="cursor-pointer" onClick={() => setSelectedCategory("")} />
             </Badge>
           )}
         </div>
@@ -127,9 +111,12 @@ export function BooksPage() {
           ))}
         </div>
       ) : isError ? (
-        <div className="text-center py-16 text-muted-foreground">
+        <div className="text-center py-16">
           <p className="text-lg font-medium text-destructive">Failed to load books</p>
-          <p className="text-sm mt-1">Please try again later.</p>
+          <p className="text-sm mt-1 text-muted-foreground">Please try again later.</p>
+          <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>
+            Try again
+          </Button>
         </div>
       ) : books.length === 0 ? (
         <div className="text-center py-16">
